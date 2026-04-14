@@ -1,0 +1,10 @@
+numpy
+polars
+scikit-learn
+spaCy
+sentence-transformers
+rapidfuzz
+pandas
+matplotlib
+seaborn
+pyarrow

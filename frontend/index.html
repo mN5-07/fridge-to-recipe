@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fridge to Recipe</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-950 text-gray-100 min-h-screen">
+  <div class="max-w-2xl mx-auto p-6">
+    <h1 class="text-4xl font-bold text-center mb-8 text-emerald-400">🍳 Fridge to Recipe</h1>
+
+    <div class="bg-gray-900 rounded-xl p-6 shadow-xl">
+      <label class="block text-sm font-medium mb-2">What ingredients do you have?</label>
+      <textarea id="ingredients" class="w-full h-24 bg-gray-800 border border-gray-700 rounded-lg p-4 text-white"
+        placeholder="chicken, rice, broccoli, soy sauce, garlic"></textarea>
+
+      <div class="mt-4">
+        <label class="block text-sm font-medium mb-2">Allergies / Avoid (optional)</label>
+        <div class="flex flex-wrap gap-2" id="allergies">
+          <!-- Checkboxes will be added by JS -->
+        </div>
+      </div>
+
+      <button onclick="getRecommendations()"
+        class="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-lg font-medium">
+        Find Recipes
+      </button>
+    </div>
+
+    <div id="results" class="mt-8"></div>
+  </div>
+
+  <script>
+    const commonAllergies = ["nuts", "dairy", "gluten", "soy", "egg", "fish", "shellfish"];
+
+    // Create allergy checkboxes
+    const allergiesDiv = document.getElementById("allergies");
+    commonAllergies.forEach(allergy => {
+      const label = document.createElement("label");
+      label.className = "flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-700";
+      label.innerHTML = `
+        <input type="checkbox" value="${allergy}" class="w-4 h-4">
+        <span>${allergy}</span>
+      `;
+      allergiesDiv.appendChild(label);
+    });
+
+    async function getRecommendations() {
+      const ingredientsInput = document.getElementById("ingredients").value.trim();
+      if (!ingredientsInput) {
+        alert("Please enter some ingredients");
+        return;
+      }
+
+      const selectedAllergies = Array.from(document.querySelectorAll("#allergies input:checked"))
+        .map(cb => cb.value);
+
+      const payload = {
+        ingredients: ingredientsInput.split(",").map(i => i.trim()),
+        allergies: selectedAllergies.length ? selectedAllergies : null,
+        top_k: 8
+      };
+
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "<p class='text-center text-gray-400'>Searching for recipes... (this may take a few seconds)</p>";
+
+      try {
+        console.log("→ Sending payload:", payload);
+
+        // Add a timeout to prevent infinite hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+        const response = await fetch("http://127.0.0.1:8000/recommend", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal
+        });
+
+        clearTimeout(timeoutId);
+
+        console.log("← Response status:", response.status);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(`Backend error ${response.status}: ${errorData.detail || 'Unknown'}`);
+        }
+
+        const data = await response.json();
+        console.log("← Received data:", data);
+
+        if (data.recipes && data.recipes.length > 0) {
+          let html = `<h2 class="text-2xl font-semibold mb-4 text-emerald-400">Recommended Recipes (${data.recipes.length})</h2>`;
+
+          data.recipes.forEach((recipe, i) => {
+            const missing = recipe.missing_ingredients && recipe.missing_ingredients.length
+              ? `<p class="text-amber-400 text-sm mt-2">Missing: ${recipe.missing_ingredients.join(", ")}</p>`
+              : `<p class="text-emerald-400 text-sm mt-2">You have everything! 🎉</p>`;
+
+            html += `
+          <div class="bg-gray-900 rounded-xl p-5 mb-4 border border-gray-700">
+            <h3 class="text-xl font-medium">${i + 1}. ${recipe.name}</h3>
+            <p class="text-emerald-400 text-sm mt-1">
+              Score: ${recipe.score} | Coverage: ${recipe.coverage_pct}% | Time: ${recipe.minutes} min
+            </p>
+            ${missing}
+          </div>`;
+          });
+
+          resultsDiv.innerHTML = html;
+        } else {
+          resultsDiv.innerHTML = `<p class="text-center text-gray-400">No good matches found. Try different ingredients.</p>`;
+        }
+      } catch (err) {
+        console.error("Fetch error:", err);
+        if (err.name === 'AbortError') {
+          resultsDiv.innerHTML = `<p class="text-red-400 text-center">Request timed out. The backend is taking too long.</p>`;
+        } else {
+          resultsDiv.innerHTML = `
+        <p class="text-red-400 text-center">
+          Could not connect to backend or got an error.<br>
+          <small>Error: ${err.message}</small>
+        </p>`;
+        }
+      }
+    }
+  </script>
+</body>
+
+</html>
