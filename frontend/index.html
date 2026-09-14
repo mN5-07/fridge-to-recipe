@@ -1,41 +1,63 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fridge to Recipe</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body {
-      font-family: system-ui, sans-serif;
-    }
+    body { font-family: system-ui, sans-serif; }
+    .recipe-card { transition: all 0.2s; }
+    .recipe-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3); }
+    .modal { animation: fadeIn 0.2s ease-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
   </style>
 </head>
-
 <body class="bg-gray-950 text-gray-100 min-h-screen">
   <div class="max-w-2xl mx-auto p-6">
-    <h1 class="text-4xl font-bold text-center mb-8 text-emerald-400">🍳 Fridge to Recipe</h1>
+    <h1 class="text-4xl font-bold text-center mb-8 text-emerald-400 flex items-center justify-center gap-3">
+      <span>🍳</span> Fridge to Recipe <span class="text-sm font-normal text-gray-500">(v2)</span>
+    </h1>
 
-    <div class="bg-gray-900 rounded-xl p-6 shadow-xl">
+    <div class="bg-gray-900 rounded-2xl p-6 shadow-xl">
       <label class="block text-sm font-medium mb-2">What ingredients do you have?</label>
-      <textarea id="ingredients" class="w-full h-24 bg-gray-800 border border-gray-700 rounded-lg p-4 text-white"
+      <textarea id="ingredients" rows="2" 
+        class="w-full bg-gray-800 border border-gray-700 rounded-xl p-4 text-white resize-y min-h-[80px]"
         placeholder="chicken, rice, broccoli, soy sauce, garlic"></textarea>
 
-      <div class="mt-4">
+      <div class="mt-5">
         <label class="block text-sm font-medium mb-2">Allergies / Avoid (optional)</label>
-        <div class="flex flex-wrap gap-2" id="allergies">
-          <!-- Checkboxes will be added by JS -->
-        </div>
+        <div class="flex flex-wrap gap-2" id="allergies"></div>
       </div>
 
-      <button onclick="getRecommendations()"
-        class="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-lg font-medium">
+      <button onclick="getRecommendations()" 
+        class="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 py-4 rounded-xl font-semibold text-lg transition">
         Find Recipes
       </button>
     </div>
 
-    <div id="results" class="mt-8"></div>
+    <div id="results" class="mt-10"></div>
+  </div>
+
+  <!-- Recipe Detail Modal -->
+  <div id="modal" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+    <div class="modal bg-gray-900 rounded-3xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="p-6 border-b border-gray-700 flex justify-between items-center">
+        <h2 id="modal-title" class="text-2xl font-semibold"></h2>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-white text-3xl leading-none">×</button>
+      </div>
+      
+      <div class="p-6 overflow-y-auto flex-1" id="modal-content">
+        <!-- Filled by JavaScript -->
+      </div>
+      
+      <div class="p-6 border-t border-gray-700 text-center">
+        <button onclick="closeModal()" 
+          class="px-8 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium">
+          Close
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -45,10 +67,10 @@
     const allergiesDiv = document.getElementById("allergies");
     commonAllergies.forEach(allergy => {
       const label = document.createElement("label");
-      label.className = "flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-700";
+      label.className = "flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-xl cursor-pointer hover:bg-gray-700 transition";
       label.innerHTML = `
-        <input type="checkbox" value="${allergy}" class="w-4 h-4">
-        <span>${allergy}</span>
+        <input type="checkbox" value="${allergy}" class="w-4 h-4 accent-emerald-500">
+        <span class="capitalize">${allergy}</span>
       `;
       allergiesDiv.appendChild(label);
     });
@@ -66,74 +88,122 @@
       const payload = {
         ingredients: ingredientsInput.split(",").map(i => i.trim()),
         allergies: selectedAllergies.length ? selectedAllergies : null,
-        top_k: 8
+        top_k: 10,
+        max_minutes: 90
       };
 
       const resultsDiv = document.getElementById("results");
-      resultsDiv.innerHTML = "<p class='text-center text-gray-400'>Searching for recipes... (this may take a few seconds)</p>";
+      resultsDiv.innerHTML = `<p class="text-center text-gray-400 py-8">Searching for recipes...</p>`;
 
       try {
-        console.log("→ Sending payload:", payload);
-
-        // Add a timeout to prevent infinite hanging
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
         const response = await fetch("http://127.0.0.1:8000/recommend", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: controller.signal
+          body: JSON.stringify(payload)
         });
 
-        clearTimeout(timeoutId);
-
-        console.log("← Response status:", response.status);
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(`Backend error ${response.status}: ${errorData.detail || 'Unknown'}`);
-        }
+        if (!response.ok) throw new Error("Backend error");
 
         const data = await response.json();
-        console.log("← Received data:", data);
 
         if (data.recipes && data.recipes.length > 0) {
-          let html = `<h2 class="text-2xl font-semibold mb-4 text-emerald-400">Recommended Recipes (${data.recipes.length})</h2>`;
-
+          let html = `<h2 class="text-2xl font-semibold mb-6 text-emerald-400">Recommended Recipes (${data.recipes.length})</h2>`;
+          
           data.recipes.forEach((recipe, i) => {
-            const missing = recipe.missing_ingredients && recipe.missing_ingredients.length
-              ? `<p class="text-amber-400 text-sm mt-2">Missing: ${recipe.missing_ingredients.join(", ")}</p>`
-              : `<p class="text-emerald-400 text-sm mt-2">You have everything! 🎉</p>`;
+            const missing = recipe.missing_ingredients && recipe.missing_ingredients.length 
+              ? `<p class="text-amber-400 text-sm">Missing: ${recipe.missing_ingredients.join(", ")}</p>`
+              : `<p class="text-emerald-400 text-sm">You have all ingredients! 🎉</p>`;
 
             html += `
-          <div class="bg-gray-900 rounded-xl p-5 mb-4 border border-gray-700">
-            <h3 class="text-xl font-medium">${i + 1}. ${recipe.name}</h3>
-            <p class="text-emerald-400 text-sm mt-1">
-              Score: ${recipe.score} | Coverage: ${recipe.coverage_pct}% | Time: ${recipe.minutes} min
-            </p>
-            ${missing}
-          </div>`;
+              <div onclick="showRecipe(${recipe.id})" 
+                   class="recipe-card bg-gray-900 rounded-2xl p-5 mb-4 border border-gray-700 cursor-pointer hover:border-emerald-500">
+                <h3 class="text-xl font-medium">${i+1}. ${recipe.name}</h3>
+                <p class="text-emerald-400 text-sm mt-2">
+                  Score: ${recipe.score} | Coverage: ${recipe.coverage_pct}% | Time: ${recipe.minutes} min
+                </p>
+                ${missing}
+              </div>`;
           });
 
           resultsDiv.innerHTML = html;
         } else {
-          resultsDiv.innerHTML = `<p class="text-center text-gray-400">No good matches found. Try different ingredients.</p>`;
+          resultsDiv.innerHTML = `<p class="text-center text-gray-400 py-8">No good matches found. Try different ingredients.</p>`;
         }
       } catch (err) {
-        console.error("Fetch error:", err);
-        if (err.name === 'AbortError') {
-          resultsDiv.innerHTML = `<p class="text-red-400 text-center">Request timed out. The backend is taking too long.</p>`;
-        } else {
-          resultsDiv.innerHTML = `
-        <p class="text-red-400 text-center">
-          Could not connect to backend or got an error.<br>
-          <small>Error: ${err.message}</small>
-        </p>`;
-        }
+        console.error(err);
+        resultsDiv.innerHTML = `<p class="text-red-400 text-center py-8">Could not connect to backend.<br><small>Error: ${err.message}</small></p>`;
       }
     }
+
+    // Show full recipe in modal
+    async function showRecipe(recipeId) {
+      const modal = document.getElementById("modal");
+      const content = document.getElementById("modal-content");
+      const title = document.getElementById("modal-title");
+
+      content.innerHTML = `<p class="text-center text-gray-400 py-12">Loading recipe details...</p>`;
+      modal.classList.remove("hidden");
+
+      try {
+        const response = await fetch(`http://127.0.0.1:8000/recipe/${recipeId}`);
+        if (!response.ok) throw new Error("Failed to load recipe");
+
+        const recipe = await response.json();
+
+        let ingredientsHtml = '<ul class="list-disc pl-5 space-y-1">';
+        if (Array.isArray(recipe.ingredients)) {
+          recipe.ingredients.forEach(ing => {
+            ingredientsHtml += `<li>${ing}</li>`;
+          });
+        } else {
+          ingredientsHtml += `<li>${recipe.ingredients}</li>`;
+        }
+        ingredientsHtml += '</ul>';
+
+        let stepsHtml = '<ol class="list-decimal pl-5 space-y-3">';
+        recipe.steps.forEach((step, i) => {
+          stepsHtml += `<li class="text-gray-300">${step}</li>`;
+        });
+        stepsHtml += '</ol>';
+
+        content.innerHTML = `
+          <div class="space-y-8">
+            ${recipe.description ? `<p class="text-gray-400 italic">${recipe.description}</p>` : ''}
+            
+            <div>
+              <h3 class="text-lg font-semibold mb-3 text-emerald-400">Ingredients</h3>
+              ${ingredientsHtml}
+            </div>
+
+            <div>
+              <h3 class="text-lg font-semibold mb-3 text-emerald-400">Instructions</h3>
+              ${stepsHtml}
+            </div>
+
+            <div class="text-sm text-gray-500">
+              Cooking time: <span class="font-medium text-white">${recipe.minutes} minutes</span>
+            </div>
+          </div>
+        `;
+
+        title.textContent = recipe.name;
+
+      } catch (err) {
+        content.innerHTML = `<p class="text-red-400 text-center py-12">Failed to load recipe details.<br><small>${err.message}</small></p>`;
+      }
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.add("hidden");
+    }
+
+    // Allow pressing Enter in textarea to search
+    document.getElementById("ingredients").addEventListener("keypress", function(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        getRecommendations();
+      }
+    });
   </script>
 </body>
-
 </html>

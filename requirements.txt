@@ -1,0 +1,4 @@
+polars
+numpy
+scikit-learn
+sentence-transformers
